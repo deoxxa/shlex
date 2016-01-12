@@ -24,7 +24,7 @@ import (
 var (
 	// one two "three four" "five \"six\"" seven#eight # nine # ten
 	// eleven 'twelve\'
-	testString = "one two \"three four\" \"five \\\"six\\\"\" seven#eight # nine # ten\n eleven 'twelve\\' thirteen=13 fourteen/14"
+	testString = "one two \"three four\" \"five \\\"six\\\"\" seven#eight # nine # ten\n eleven 'twelve\\' thirteen=13 fourteen/14\na; b\nx"
 )
 
 func TestClassifier(t *testing.T) {
@@ -33,7 +33,9 @@ func TestClassifier(t *testing.T) {
 		' ':  spaceRuneClass,
 		'"':  escapingQuoteRuneClass,
 		'\'': nonEscapingQuoteRuneClass,
-		'#':  commentRuneClass}
+		'#':  commentRuneClass,
+		';':  terminatingRuneClass,
+		'\n': terminatingRuneClass}
 	for runeChar, want := range tests {
 		got := classifier.ClassifyRune(runeChar)
 		if got != want {
@@ -54,7 +56,13 @@ func TestTokenizer(t *testing.T) {
 		&Token{WordToken, "eleven"},
 		&Token{WordToken, "twelve\\"},
 		&Token{WordToken, "thirteen=13"},
-		&Token{WordToken, "fourteen/14"}}
+		&Token{WordToken, "fourteen/14"},
+		&Token{TerminatingToken, "\n"},
+		&Token{WordToken, "a"},
+		&Token{TerminatingToken, ";"},
+		&Token{WordToken, "b"},
+		&Token{TerminatingToken, "\n"},
+		&Token{WordToken, "x"}}
 
 	tokenizer := NewTokenizer(testInput)
 	for i, want := range expectedTokens {
@@ -62,6 +70,7 @@ func TestTokenizer(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
+
 		if !got.Equal(want) {
 			t.Errorf("Tokenizer.Next()[%v] of %q -> %v. Want: %v", i, testString, got, want)
 		}
@@ -85,17 +94,32 @@ func TestLexer(t *testing.T) {
 }
 
 func TestSplit(t *testing.T) {
-	want := []string{"one", "two", "three four", "five \"six\"", "seven#eight", "eleven", "twelve\\", "thirteen=13", "fourteen/14"}
+	want := [][]string{
+		[]string{"one", "two", "three four", "five \"six\"", "seven#eight"},
+		[]string{"eleven", "twelve\\", "thirteen=13", "fourteen/14"},
+		[]string{"a"},
+		[]string{"b"},
+		[]string{"x"},
+	}
+
 	got, err := Split(testString)
 	if err != nil {
 		t.Error(err)
 	}
+
 	if len(want) != len(got) {
 		t.Errorf("Split(%q) -> %v. Want: %v", testString, got, want)
 	}
+
 	for i := range got {
-		if got[i] != want[i] {
-			t.Errorf("Split(%q)[%v] -> %v. Want: %v", testString, i, got[i], want[i])
+		if len(want[i]) != len(got[i]) {
+			t.Errorf("Split(%q) -> %v. Want: %v", testString, got, want)
+		}
+
+		for j := range got[i] {
+			if got[i][j] != want[i][j] {
+				t.Errorf("Split(%q)[%v] -> %v. Want: %v", testString, i, got[i][j], want[i][j])
+			}
 		}
 	}
 }

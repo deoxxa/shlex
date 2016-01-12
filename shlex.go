@@ -20,7 +20,7 @@ shell-style rules for quoting and commenting.
 
 The basic use case uses the default ASCII lexer to split a string into sub-strings:
 
-  shlex.Split("one \"two three\" four") -> []string{"one", "two three", "four"}
+  shlex.Split("one \"two three\" four") -> [][]string{[]string{"one", "two three", "four"}}
 
 To process a stream of strings:
 
@@ -76,11 +76,12 @@ func (a *Token) Equal(b *Token) bool {
 
 // Named classes of UTF-8 runes
 const (
-	spaceRunes            = " \t\r\n"
+	spaceRunes            = " \t"
 	escapingQuoteRunes    = `"`
 	nonEscapingQuoteRunes = "'"
 	escapeRunes           = `\`
 	commentRunes          = "#"
+	terminatingRunes      = "\n;"
 )
 
 // Classes of rune token
@@ -91,6 +92,7 @@ const (
 	nonEscapingQuoteRuneClass
 	escapeRuneClass
 	commentRuneClass
+	terminatingRuneClass
 	eofRuneClass
 )
 
@@ -100,6 +102,7 @@ const (
 	WordToken
 	SpaceToken
 	CommentToken
+	TerminatingToken
 )
 
 // Lexer state machine states
@@ -130,6 +133,7 @@ func newDefaultClassifier() tokenClassifier {
 	t.addRuneClass(nonEscapingQuoteRunes, nonEscapingQuoteRuneClass)
 	t.addRuneClass(escapeRunes, escapeRuneClass)
 	t.addRuneClass(commentRunes, commentRuneClass)
+	t.addRuneClass(terminatingRunes, terminatingRuneClass)
 	return t
 }
 
@@ -158,6 +162,8 @@ func (l *Lexer) Next() (string, error) {
 		switch token.tokenType {
 		case WordToken:
 			return token.value, nil
+		case TerminatingToken:
+			return "", nil
 		case CommentToken:
 			// skip comments
 		default:
@@ -213,6 +219,13 @@ func (t *Tokenizer) scanStream() (*Token, error) {
 				case spaceRuneClass:
 					{
 					}
+				case terminatingRuneClass:
+					{
+						token := &Token{
+							tokenType: TerminatingToken,
+							value:     string(nextRune)}
+						return token, nil
+					}
 				case escapingQuoteRuneClass:
 					{
 						tokenType = WordToken
@@ -252,6 +265,14 @@ func (t *Tokenizer) scanStream() (*Token, error) {
 						return token, err
 					}
 				case spaceRuneClass:
+					{
+						t.input.UnreadRune()
+						token := &Token{
+							tokenType: tokenType,
+							value:     string(value)}
+						return token, err
+					}
+				case terminatingRuneClass:
 					{
 						t.input.UnreadRune()
 						token := &Token{
@@ -369,20 +390,18 @@ func (t *Tokenizer) scanStream() (*Token, error) {
 							value:     string(value)}
 						return token, err
 					}
-				case spaceRuneClass:
+				default:
 					{
 						if nextRune == '\n' {
+							t.input.UnreadRune()
+
 							state = startState
 							token := &Token{
 								tokenType: tokenType,
 								value:     string(value)}
 							return token, err
-						} else {
-							value = append(value, nextRune)
 						}
-					}
-				default:
-					{
+
 						value = append(value, nextRune)
 					}
 				}
@@ -401,17 +420,28 @@ func (t *Tokenizer) Next() (*Token, error) {
 }
 
 // Split partitions a string into a slice of strings.
-func Split(s string) ([]string, error) {
-	l := NewLexer(strings.NewReader(s))
-	subStrings := make([]string, 0)
+func Split(s string) ([][]string, error) {
+	t := NewTokenizer(strings.NewReader(s))
+
+	var strl [][]string
+	var str []string
+
 	for {
-		word, err := l.Next()
+		tok, err := t.Next()
 		if err != nil {
 			if err == io.EOF {
-				return subStrings, nil
+				return strl, nil
 			}
-			return subStrings, err
+
+			return strl, err
 		}
-		subStrings = append(subStrings, word)
+
+		if tok.tokenType == TerminatingToken {
+			strl = append(strl, str)
+
+			continue
+		}
+
+		str = append(str, tok.value)
 	}
 }
